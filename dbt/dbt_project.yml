@@ -1,0 +1,20 @@
+name: multifamily_gold
+version: "1.0.0"
+config-version: 2
+profile: multifamily_gold
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  multifamily_gold:
+    bronze:
+      +schema: bronze
+      +materialized: table
+    silver:
+      +schema: silver
+      +materialized: table

@@ -3,18 +3,29 @@
 Each step ends with something runnable and a review checkpoint. Domain rules live in [CLAUDE.md](CLAUDE.md).
 
 ## Step 0 — Scaffolding
-- `pyproject.toml` (deps: duckdb, dbt-duckdb, mcp, pyyaml, pydantic; dev: pytest, ruff, mypy).
-- `.gitignore` (`.venv/`, `data/`, `warehouse/`, `dbt/target/`, `dbt/logs/`, `.env`).
-- Empty package folders per CLAUDE.md layout.
-- **Done when:** `pip install -e ".[dev]"` and `ruff check .` succeed.
+- ✅ `requirements.txt` (pinned: duckdb, dbt-core, dbt-duckdb, mcp, pyyaml, faker, pandas, pytest).
+- ✅ `.gitignore` (`.venv/`, `data/`, `*.duckdb`, `dbt/target/`, `dbt/logs/`, `.env`).
+- ✅ Package folders per CLAUDE.md layout.
+- ⏳ Add ruff + mypy (not yet in requirements; needed before CI in Step 8).
+- **Done when:** `pip install -r requirements.txt` and the import smoke test succeed. ✅ (2026-11-09)
 
-## Step 1 — Synthetic data generator
+## Step 1 — Synthetic data generator  ✅ core done (2026-11-09)
+Built as a single `generator/generate.py`; 13 tests in `tests/test_generator.py`.
+Defects actually injected so far: the 5 listed in `data/raw/KNOWN_ISSUES.md`.
+Still open from the original plan: ground-truth files (`data/truth/`) for evals,
+and the extra defects below (mixed date formats, currency strings, etc.).
+
 - `config.py`: 2 owners (`OWN-001`, `OWN-002`), 5 properties (e.g. 3 / 2 split), ~600 units, unit mix (studio, 1x1, 2x2, 3x2), 3 years of history, fixed seed.
 - Entities, generated clean first: properties → units (incl. non-revenue: model, employee, down, office) → leases (renewals, early move-outs, move-in ≠ lease_start, notice dates, vacancies between leases) → monthly charges and payments (rent, concessions, fees, partial/late payments) → guest cards (lead source, tour, application, lease conversion).
 - `truth.py`: from the **clean** data, compute ground-truth answers (occupancy, economic occupancy, loss to lease by unit type, etc.) and write `data/truth/*.json`.
 - `mess.py`: then inject Yardi-like defects into the CSVs only: mixed date formats, trailing whitespace, inconsistent casing/codes (`1x1`, `1BR`, `1 Bed`), duplicate rows, currency strings (`"$1,250.00"`), blanks vs `NULL` strings, reversed charges, renamed columns between extract files.
 - Unit tests: determinism (same seed → same bytes), row counts, every defect type present.
 - **Done when:** `python -m generator --seed 42` writes CSVs + truth files.
+
+> **Steps 2–3 status (2026-11-09):** bronze (9 models) and silver (10 models) built;
+> `dbt build` = 106 PASS, 1 intentional WARN (8 unmapped charge codes). Silver
+> differs from the sketch below: no seed mapping tables were needed yet (only
+> unit codes and charge codes vary), and the ownership history is its own model.
 
 ## Step 2 — dbt bronze
 - `profiles.yml` → local DuckDB via env var.

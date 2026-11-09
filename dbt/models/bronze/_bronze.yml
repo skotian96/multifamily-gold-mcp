@@ -1,0 +1,25 @@
+version: 2
+
+# Bronze = raw CSVs from data/raw/, one model per file, every column VARCHAR,
+# values untouched. Each model adds _loaded_at and _source_file.
+# Known defects in these tables are listed in data/raw/KNOWN_ISSUES.md.
+
+models:
+  - name: brz_owners
+    description: "Raw owners.csv. One row per owner as delivered."
+  - name: brz_properties
+    description: "Raw properties.csv. owner_id is the CURRENT owner only; history is in brz_property_owners."
+  - name: brz_property_owners
+    description: "Raw property_owners.csv. Effective-dated ownership history."
+  - name: brz_units
+    description: "Raw units.csv, the unit master. unit_code is always spelled STE-###."
+  - name: brz_unit_market_rents
+    description: "Raw unit_market_rents.csv. Market rent per unit, effective each January 1."
+  - name: brz_leases
+    description: "Raw leases.csv. unit_code spelled STE-### or bare ###; move-outs may be back-dated."
+  - name: brz_charge_codes
+    description: "Raw charge_codes.csv. Chart of valid ledger codes and their category."
+  - name: brz_charges
+    description: "Raw charges.csv (resident ledger). unit_code spelled three ways; a few unknown charge codes."
+  - name: brz_guest_cards
+    description: "Raw guest_cards.csv. Contains duplicate cards for the same person."

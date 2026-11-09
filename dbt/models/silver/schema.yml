@@ -1,0 +1,402 @@
+version: 2
+
+# Silver = typed, cleaned, conformed. snake_case names, real DATE/DECIMAL/BOOLEAN
+# types, canonical unit_id everywhere, and every row from bronze accounted for.
+
+models:
+  - name: slv_owners
+    description: "Grain: one row per owner."
+    columns:
+      - name: owner_id
+        description: "Owner identifier, e.g. OWN-001."
+        data_tests: [unique, not_null]
+      - name: owner_name
+        description: "Legal/display name of the owner."
+        data_tests: [not_null]
+
+  - name: slv_properties
+    description: "Grain: one row per property."
+    columns:
+      - name: property_id
+        description: "Property code, e.g. P100."
+        data_tests: [unique, not_null]
+      - name: property_name
+        description: "Marketing name of the community."
+        data_tests: [not_null]
+      - name: city
+        description: "City."
+      - name: state
+        description: "Two-letter state code (upper-cased)."
+      - name: unit_count
+        description: "Total units including non-revenue units."
+        data_tests: [not_null]
+      - name: current_owner_id
+        description: >
+          Owner on the extract date ONLY. Do not use for history or access
+          control over past periods; use slv_property_owners.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_owners')
+                field: owner_id
+
+  - name: slv_property_owners
+    description: >
+      Grain: one row per (property, ownership period). Effective-dated
+      ownership; P300 changes owner on 2025-04-01. Use this, not
+      slv_properties.current_owner_id, to decide which owner may see a
+      property's data for a given date.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [property_id, effective_from]
+    columns:
+      - name: property_id
+        description: "Property code."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_properties')
+                field: property_id
+      - name: owner_id
+        description: "Owner during this period."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_owners')
+                field: owner_id
+      - name: effective_from
+        description: "First day of ownership (inclusive)."
+        data_tests: [not_null]
+      - name: effective_to
+        description: "Last day of ownership (inclusive); null while current."
+      - name: is_current
+        description: "True for the open (current) ownership period."
+        data_tests: [not_null]
+
+  - name: slv_units
+    description: >
+      Grain: one row per unit. The unit master and the authority on which
+      units exist and whether they are rentable.
+    columns:
+      - name: unit_id
+        description: "Canonical unit key '<property_id>-<unit number>', e.g. P300-300."
+        data_tests: [unique, not_null]
+      - name: property_id
+        description: "Property code."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_properties')
+                field: property_id
+      - name: unit_number
+        description: "Numeric unit number (floor * 100 + position)."
+        data_tests: [not_null]
+      - name: unit_code
+        description: "Canonical display code, STE-###."
+        data_tests: [not_null]
+      - name: unit_type
+        description: "Floor-plan family."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["studio", "1BR", "2BR", "3BR"]
+      - name: bedrooms
+        description: "Bedroom count (0 for studio)."
+      - name: bathrooms
+        description: "Bathroom count."
+      - name: sqft
+        description: "Rentable square feet."
+      - name: current_market_rent
+        description: "Market (asking) rent on the extract date. History is in slv_unit_market_rents."
+        data_tests: [not_null]
+      - name: unit_use
+        description: "residential, or a non-revenue use: model, employee, down, office."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["residential", "model", "employee", "down", "office"]
+      - name: is_rentable
+        description: >
+          False for non-revenue units. Non-revenue units are excluded from
+          occupancy and GPR denominators.
+        data_tests: [not_null]
+
+  - name: slv_unit_crosswalk
+    description: >
+      Grain: one row per (property_id, raw unit_code spelling) observed in any
+      bronze file. Maps 'STE-300', 'Suite 300' and '300' to one canonical
+      unit_id. A null unit_id means a spelling that matches no real unit, and
+      fails the tests below.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [property_id, raw_unit_code]
+    columns:
+      - name: property_id
+        description: "Property code."
+        data_tests: [not_null]
+      - name: raw_unit_code
+        description: "Unit code exactly as it appears in the raw file."
+        data_tests: [not_null]
+      - name: unit_id
+        description: "Canonical unit key resolved from the spelling."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_units')
+                field: unit_id
+      - name: unit_number
+        description: "Trailing digits parsed from the raw spelling."
+      - name: spelling_style
+        description: "Which spelling pattern was used."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["STE-###", "Suite ###", "bare ###"]
+      - name: seen_in
+        description: "Bronze tables where this spelling appears."
+      - name: raw_row_count
+        description: "Number of raw rows using this spelling."
+
+  - name: slv_unit_market_rents
+    description: "Grain: one row per (unit, market-rent period)."
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [unit_id, effective_from]
+    columns:
+      - name: unit_id
+        description: "Canonical unit key."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_units')
+                field: unit_id
+      - name: effective_from
+        description: "First day this market rent applies (inclusive)."
+        data_tests: [not_null]
+      - name: effective_to
+        description: "Last day it applies (inclusive); null for the current rate."
+      - name: market_rent
+        description: "Monthly market (asking) rent."
+        data_tests: [not_null]
+
+  - name: slv_leases
+    description: >
+      Grain: one row per lease contract (new, renewal or transfer). Contract
+      dates (lease_start/lease_end), physical events (move_in/move_out) and
+      notice_date are separate columns and must never be used for one
+      another. move_out is the EVENT date and is trusted over the entry date.
+    columns:
+      - name: lease_id
+        description: "Lease identifier."
+        data_tests: [unique, not_null]
+      - name: resident_id
+        description: "Resident (household). Stays the same across renewals and transfers."
+        data_tests: [not_null]
+      - name: property_id
+        description: "Property code."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_properties')
+                field: property_id
+      - name: unit_id
+        description: "Canonical unit key, resolved via slv_unit_crosswalk."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_units')
+                field: unit_id
+      - name: lease_type
+        description: "new | renewal | transfer."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["new", "renewal", "transfer"]
+      - name: lease_start
+        description: "Contract start; rent billing starts here."
+        data_tests: [not_null]
+      - name: lease_end
+        description: "Contract end (inclusive)."
+        data_tests: [not_null]
+      - name: move_in
+        description: "Physical move-in. Null on renewals. Differs from lease_start on ~20% of leases."
+      - name: notice_date
+        description: "Date the resident gave notice to vacate."
+      - name: move_out
+        description: >
+          Physical move-out (EVENT date, trusted). Null if the resident has not
+          left, or on a renewal that was followed by another renewal.
+      - name: move_out_entered_on
+        description: "Date the move-out was keyed into the system. Audit only."
+      - name: move_out_reason
+        description: "Lease Expired, Early Termination, Transfer, Skip, Eviction."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["Lease Expired", "Early Termination", "Transfer", "Skip", "Eviction"]
+      - name: monthly_rent
+        description: "In-place monthly rent on this lease."
+        data_tests: [not_null]
+      - name: move_out_entry_lag_days
+        description: "Days between move_out and move_out_entered_on."
+      - name: is_backdated_move_out
+        description: "True when the move-out was entered 14+ days after it happened."
+        data_tests: [not_null]
+
+  - name: slv_charge_codes
+    description: "Grain: one row per valid ledger charge code."
+    columns:
+      - name: charge_code
+        description: "Ledger code, upper-cased."
+        data_tests: [unique, not_null]
+      - name: charge_code_description
+        description: "Code description."
+      - name: charge_category
+        description: "Standard category."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["rent", "concession", "fee", "payment"]
+
+  - name: slv_charges
+    description: >
+      Grain: one row per resident-ledger transaction. Charges positive;
+      concessions and payments negative. Unknown charge codes are kept with
+      charge_category = 'unmapped' (see the warn-level test
+      assert_all_charge_codes_mapped).
+    columns:
+      - name: transaction_id
+        description: "Ledger transaction identifier."
+        data_tests: [unique, not_null]
+      - name: property_id
+        description: "Property code."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_properties')
+                field: property_id
+      - name: unit_id
+        description: "Canonical unit key, resolved via slv_unit_crosswalk."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_units')
+                field: unit_id
+      - name: resident_id
+        description: "Resident whose ledger this line is on."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_leases')
+                field: resident_id
+      - name: lease_id
+        description: "Lease the line belongs to."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_leases')
+                field: lease_id
+      - name: transaction_date
+        description: "Posting date."
+        data_tests: [not_null]
+      - name: post_month
+        description: "Accounting month (first day of month)."
+        data_tests: [not_null]
+      - name: charge_code
+        description: "Ledger code as posted (upper-cased)."
+        data_tests: [not_null]
+      - name: charge_category
+        description: "rent | concession | fee | payment | unmapped."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["rent", "concession", "fee", "payment", "unmapped"]
+      - name: is_mapped_code
+        description: "False when charge_code is not in slv_charge_codes."
+        data_tests: [not_null]
+      - name: description
+        description: "Line description."
+      - name: amount
+        description: "Signed amount in dollars."
+        data_tests: [not_null]
+
+  - name: slv_guest_cards
+    description: >
+      Grain: one row per deduplicated prospect (person x property). Duplicate
+      cards are merged by property + phone/email + fuzzy name match; see the
+      model SQL for the full matching and survivorship rule.
+    columns:
+      - name: prospect_id
+        description: "guest_card_id of the earliest card for this person."
+        data_tests: [unique, not_null]
+      - name: property_id
+        description: "Property the prospect enquired about."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('slv_properties')
+                field: property_id
+      - name: first_name
+        description: "From the most-progressed card."
+      - name: last_name
+        description: "From the most-progressed card."
+      - name: email
+        description: "Lower-cased email, first non-blank."
+      - name: phone
+        description: "Phone, digits only."
+      - name: original_source
+        description: "Lead source of the earliest card (first-touch attribution)."
+        data_tests: [not_null]
+      - name: first_contact_date
+        description: "Earliest contact across merged cards."
+        data_tests: [not_null]
+      - name: desired_move_in
+        description: "Desired move-in from the most-progressed card."
+      - name: desired_unit_type
+        description: "Desired unit type from the most-progressed card."
+      - name: tour_date
+        description: "Earliest tour across merged cards."
+      - name: application_date
+        description: "Earliest application across merged cards."
+      - name: status
+        description: "Most-progressed status across merged cards."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Leased", "Denied", "Cancelled", "Toured", "Lost", "Prospect"]
+      - name: resident_id
+        description: "Resident the prospect became, if they leased."
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('slv_leases')
+                field: resident_id
+      - name: card_count
+        description: "Number of raw guest cards merged into this prospect."
+        data_tests: [not_null]
+      - name: had_duplicates
+        description: "True when more than one card was merged."
+      - name: source_guest_card_ids
+        description: "Comma-separated raw guest_card_ids merged into this prospect."

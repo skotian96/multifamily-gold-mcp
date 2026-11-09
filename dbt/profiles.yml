@@ -1,0 +1,11 @@
+# Local DuckDB file warehouse. No credentials needed.
+# Paths are relative to dbt/ (run dbt from inside that folder);
+# override with MFG_DUCKDB_PATH if you want the file elsewhere.
+multifamily_gold:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('MFG_DUCKDB_PATH', '../warehouse/warehouse.duckdb') }}"
+      schema: main
+      threads: 4

@@ -1,0 +1,11 @@
+# Direct dependencies, pinned to a set verified to resolve together on
+# Windows / Python 3.12 (2026-11-09). Transitive deps are left to pip.
+
+duckdb==2.0.0
+dbt-core==1.12.6
+dbt-duckdb==1.11.1
+mcp==2.3.0
+pyyaml==6.0.3
+faker==40.51.0
+pandas==3.1.1
+pytest==9.2.0

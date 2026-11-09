@@ -1,0 +1,41 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated data (keep folders via .gitkeep)
+data/raw/*
+data/truth/*
+!data/raw/.gitkeep
+!data/truth/.gitkeep
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+warehouse/*
+!warehouse/.gitkeep
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+logs/
+
+# Secrets / local config
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

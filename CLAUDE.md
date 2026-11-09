@@ -23,16 +23,12 @@ multifamily-gold-mcp/
 ├── CLAUDE.md                  # this file
 ├── PLAN.md                    # build steps
 ├── README.md                  # public-facing overview (written last)
-├── pyproject.toml             # deps, tool config (ruff, mypy, pytest)
+├── requirements.txt           # pinned direct dependencies
 ├── .github/workflows/ci.yml   # lint, type-check, generate, dbt build, pytest
-├── generator/                 # synthetic Yardi-like data generator (Python package)
-│   ├── __main__.py            # CLI entry: python -m generator
-│   ├── config.py              # portfolio shape: owners, properties, unit mix, dates, seed
-│   ├── entities/              # one module per entity (properties, units, leases, charges, guest_cards)
-│   ├── mess.py                # deliberate data-quality defects
-│   └── truth.py               # writes the clean ground-truth answers used by evals
+├── generator/
+│   └── generate.py            # simulate clean portfolio -> inject defects -> CSVs + KNOWN_ISSUES.md
 ├── data/
-│   ├── raw/                   # generated CSVs (gitignored)
+│   ├── raw/                   # generated CSVs + KNOWN_ISSUES.md (gitignored)
 │   └── truth/                 # ground-truth JSON for evals (gitignored)
 ├── warehouse/                 # DuckDB file(s) (gitignored)
 ├── dbt/                       # dbt project
@@ -63,19 +59,25 @@ multifamily-gold-mcp/
 All commands are PowerShell from the repo root. (Commands marked *planned* don't work until that build step lands — see PLAN.md.)
 
 ```powershell
-# One-time setup
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+# One-time setup. Use the py launcher: plain `python` on this machine
+# resolves to R's miniconda, not python.org Python.
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1          # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -c "import duckdb, mcp, yaml; print('ok')"   # smoke test
 
-# 1. Generate raw data (deterministic for a given seed)            [planned]
-python -m generator --seed 42 --out data/raw --truth data/truth
+# 1. Generate raw data (deterministic for a given seed; ~3s)
+python -m generator.generate --seed 42 --out data/raw
+#    -> read data/raw/KNOWN_ISSUES.md for the injected defects silver must handle
 
-# 2. Build the medallion pipeline + run dbt tests                  [planned]
-$env:MFG_DUCKDB_PATH = "warehouse/multifamily.duckdb"
-dbt deps  --project-dir dbt --profiles-dir dbt
-dbt build --project-dir dbt --profiles-dir dbt
-dbt docs generate --project-dir dbt --profiles-dir dbt             # lineage + grain docs
+# 2. Build the medallion pipeline + run dbt tests (~10s)
+#    Run from inside dbt/: paths default to ../warehouse/warehouse.duckdb and
+#    ../data/raw (override with MFG_DUCKDB_PATH / MFG_RAW_DIR).
+cd dbt
+dbt build --profiles-dir .            # expect PASS + 1 WARN (unmapped charge codes)
+dbt docs generate --profiles-dir .    # lineage + grain docs
+cd ..
 
 # 3. Validate the semantic layer                                   [planned]
 python -m semantic.loader --check semantic/metrics.yml
